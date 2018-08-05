@@ -59,17 +59,20 @@ describe('SimulatorLogPlugin', () => {
 
   it('should work through-out boots, launches and relaunches', async () => {
     debugger;
+
     await artifactsManager.onBootDevice({ deviceId: 'booted' });
     await fs.appendFile(fakeAppleSimUtils.logs.stdout, 'boot line\n');
     await fs.appendFile(fakeAppleSimUtils.logs.stderr, 'boot line\n');
 
-    await artifactsManager.onBeforeAll();
     await artifactsManager.onBeforeLaunchApp({ device: 'booted', bundleId: 'com.test' });
     await fs.remove(fakeAppleSimUtils.logs.stdout);
     await fs.remove(fakeAppleSimUtils.logs.stderr);
+
     await artifactsManager.onLaunchApp({ device: 'booted', bundleId: 'com.test', pid: 8000 });
     await fs.appendFile(fakeAppleSimUtils.logs.stdout, 'launch line\n');
     await fs.appendFile(fakeAppleSimUtils.logs.stderr, 'launch line\n');
+
+    await artifactsManager.onBeforeAll();
 
     await artifactsManager.onBeforeEach({ title: 'test', fullName: 'some test', status: 'running'});
     await fs.appendFile(fakeAppleSimUtils.logs.stdout, 'in-test line\n');
@@ -78,8 +81,8 @@ describe('SimulatorLogPlugin', () => {
     await artifactsManager.onBeforeLaunchApp({ device: 'booted', bundleId: 'com.test' });
     await fs.remove(fakeAppleSimUtils.logs.stdout);
     await fs.remove(fakeAppleSimUtils.logs.stderr);
-    await artifactsManager.onLaunchApp({ device: 'booted', bundleId: 'com.test', pid: 8001 });
 
+    await artifactsManager.onLaunchApp({ device: 'booted', bundleId: 'com.test', pid: 8001 });
     await fs.appendFile(fakeAppleSimUtils.logs.stdout, 'post-relaunch line\n');
     await fs.appendFile(fakeAppleSimUtils.logs.stderr, 'post-relaunch line\n');
 

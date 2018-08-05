@@ -1,5 +1,8 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`SimulatorLogPlugin should work through-out boots, launches and relaunches 1`] = `""`;
+exports[`SimulatorLogPlugin should work through-out boots, launches and relaunches 1`] = `
+"stdout: in-test line
+"
+`;
 
 exports[`SimulatorLogPlugin should work through-out boots, launches and relaunches 2`] = `""`;

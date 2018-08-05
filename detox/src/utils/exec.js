@@ -106,9 +106,14 @@ function spawnAndLog(command, flags, options) {
     log.error({ event: 'SPAWN_ERROR' }, `${cmd} failed with code = ${exitCode}`);
   }
 
-  if (!options.silent) {
-    stdout.on('data', (chunk) => log.trace({ stdout: true, event: 'SPAWN_STDOUT' }, chunk.toString()));
-    stderr.on('data', (chunk) => log.trace({ stderr: true, event: 'SPAWN_STDERR' }, chunk.toString()));
+  if (!options || !options.silent) {
+    if (stdout) {
+      stdout.on('data', (chunk) => log.trace({ stdout: true, event: 'SPAWN_STDOUT' }, chunk.toString()));
+    }
+
+    if (stderr) {
+      stderr.on('data', (chunk) => log.trace({ stderr: true, event: 'SPAWN_STDERR' }, chunk.toString()));
+    }
   }
 
   function onEnd(e) {

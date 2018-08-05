@@ -1,102 +1,93 @@
 const _ = require('lodash');
-const fs = require('fs-extra');
-const stream = require('stream');
-const tempfile = require('tempfile');
-const log = require('../../../utils/logger').child({ __filename });
-const Artifact = require('../../templates/artifact/Artifact');
 const LogArtifactPlugin = require('../LogArtifactPlugin');
-const interruptProcess = require('../../../utils/interruptProcess');
-const { spawnAndLog } = require('../../../utils/exec');
+const SimulatorLogRecording = require('./SimulatorLogRecording');
+const fs = require('fs-extra');
+const log = require('../../../utils/logger').child({ __filename });
+const tempfile = require('tempfile');
+const { Tail } = require('tail');
 
 class SimulatorLogPlugin extends LogArtifactPlugin {
   constructor(config) {
     super(config);
 
     this.appleSimUtils = config.appleSimUtils;
-    this.stdoutTailProcess = null;
-    this.stderrTailProcess = null;
-    this.parentStream = new stream.PassThrough();
+    this.tails = {
+      stderr: null,
+      stdout: null,
+    };
   }
 
   async onBeforeLaunchApp(event) {
     await super.onBeforeLaunchApp(event);
-    await this._tryTerminateTails();
+
+    if (this.currentRecording) {
+      await this.currentRecording.stop();
+    }
+
+    this._disposeTails();
   }
 
   async onLaunchApp(event) {
     await super.onLaunchApp(event);
-    await this._spawnTails(event.deviceId);
+
+    this._createTails(this.appleSimUtils.getLogsPaths(event.deviceId));
+
+    if (this.currentRecording) {
+      await this.currentRecording.start({
+        tails: this.tails,
+        readFromBeginning: true,
+      });
+    }
   }
 
-  async onShutdownDevice(event) {
-    await this._tryTerminateTails();
+  _createTails({ stdout, stderr }) {
+    this._createTail(stdout, 'stdout');
+    this._createTail(stderr, 'stderr');
   }
 
-  async onAfterAll() {
-    await this._tryTerminateTails();
+  _disposeTails() {
+    this._unwatchTail('stdout');
+    this._unwatchTail('stderr');
   }
 
-  async onTerminate() {
-    await this._tryTerminateTails();
-  }
-
-  async _spawnTails(deviceId) {
-    const { stdout, stderr } = this.appleSimUtils.getLogsPaths(deviceId);
-
-    this.stdoutTailProcess = spawnAndLog('tail', [stdout], { silent: true });
-    this.stderrTailProcess = spawnAndLog('tail', [stderr], { silent: true });
-
-    this.stdoutTailProcess.childProcess.stdout.pipe(this.parentStream, { end: false });
-    this.stderrTailProcess.childProcess.stdout.pipe(this.parentStream, { end: false });
-  }
-
-  async _tryTerminateTails() {
-    if (this.stdoutTailProcess) {
-      await interruptProcess(this.stdoutTailProcess);
-      this.stdoutTailProcess = null;
+  _createTail(file, prefix) {
+    if (!fs.existsSync(file)) {
+      log.warn({ event: 'LOG_MISSING' }, `simulator ${prefix} log is missing at path: ${file}`);
+      return null;
     }
 
-    if (this.stderrTailProcess) {
-      await interruptProcess(this.stderrTailProcess);
-      this.stderrTailProcess = null;
+    log.trace({ event: 'TAIL_CREATE' }, `starting to watch ${prefix} log: ${file}`);
+
+    const tail = new Tail(file, {
+      fromBeginning: this._readFromBeginning,
+      logger: {
+        info: _.noop,
+        error: (...args) => log.error({ event: 'TAIL_ERROR' }, ...args),
+      },
+    });
+    this.tails[prefix] = tail;
+  }
+
+  _unwatchTail(prefix) {
+    const tail = this.tails[prefix];
+
+    if (tail) {
+      log.trace({ event: 'TAIL_UNWATCH' }, `unwatching ${prefix} log`);
+      tail.unwatch();
     }
+
+    this.tails[prefix] = null;
   }
 
   createStartupRecording() {
-    return this.createTestRecording();
+    return this.createTestRecording(true);
   }
 
-  createTestRecording() {
-    const parentStream = this.parentStream;
-    const logPath = tempfile('.log');
-    let logStream = null;
-
-    return new Artifact({
-      name: 'SimulatorLogRecording',
-
-      async start() {
-        log.trace({ event: 'CREATE_STREAM '}, `creating append-only stream to: ${logPath}`);
-        logStream = fs.createWriteStream(logPath, { flags: 'a' });
-        parentStream.pipe(logStream);
-      },
-
-      async stop() {
-        parentStream.unpipe(logStream);
-        logStream.end();
-      },
-
-      async save(artifactPath) {
-        if (await fs.exists(logPath)) {
-          log.debug({ event: 'MOVE_FILE' }, `moving "${logPath}" to ${artifactPath}`);
-          await fs.move(logPath, artifactPath);
-        } else {
-          log.error({ event: 'MOVE_FILE_ERROR'} , `did not find temporary log file: ${logPath}`);
-        }
-      },
-
-      async discard() {
-        await fs.remove(logPath);
-      }
+  createTestRecording(readFromBeginning = false) {
+    return new SimulatorLogRecording({
+      temporaryLogPath: tempfile('.log'),
+      tails: this.tails,
+      readFromBeginning,
     });
   }
 }
